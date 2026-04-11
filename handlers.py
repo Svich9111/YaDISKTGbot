@@ -6,7 +6,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.base import StorageKey
 from aiogram.exceptions import TelegramBadRequest
 import config
-from database import add_file, get_pending_files, clear_pending_files, add_notification, get_chat_config, set_chat_config, get_all_chats, is_admin_of_chat
+from database import add_file, get_pending_files, clear_pending_files, add_notification, get_chat_config, set_chat_config, get_all_chats, is_admin_of_chat, check_duplicate_file
 from queue_manager import UploadQueue
 from datetime import datetime
 import time
@@ -15,6 +15,7 @@ from loguru import logger
 from loader import queue, dp
 import mimetypes
 import urllib.parse
+import hashlib
 
 router = Router()
 start_time = time.time()
@@ -303,7 +304,8 @@ async def status_command(message: Message):
         active_uploads = queue.active_uploads if queue else {}
         
         for file in pending_files[:5]: # Show top 5
-            # file structure: id, telegram_file_id, telegram_file_unique_id, message_id, chat_id, file_type, file_name, disk_path, status, status_reason, created_at
+            # file structure: id, telegram_file_id, telegram_file_unique_id, message_id, chat_id, file_type, file_name, disk_path, status, status_reason, file_size, file_hash, created_at
+            # Note: indices shifted because of new columns
             unique_id = file[2]
             file_name = file[6]
             
@@ -322,6 +324,8 @@ async def status_command(message: Message):
                 
         if len(pending_files) > 5:
             status_text += f"... and {len(pending_files) - 5} more\n"
+    else:
+        status_text += "\n**Pending Files:** None\n"
     
     if disk_info:
         total_space = disk_info.get('total_space', 0) / (1024**3)
@@ -458,6 +462,21 @@ async def handle_file(message: Message):
         await message.reply("❌ Не удалось определить файл. Попробуйте отправить его снова.")
         return
 
+    # Generate a simple hash for deduplication based on unique_id and file_size (if available)
+    # Note: Real content hash requires downloading, so we use metadata hash
+    file_hash = hashlib.md5(f"{unique_id}".encode()).hexdigest()
+
+    # Check for duplicates
+    existing_path = await check_duplicate_file(file_hash)
+    if existing_path:
+        logger.info(f"Duplicate file detected: {file_name} ({unique_id})")
+        # Notify user about duplicate
+        try:
+            await message.reply(f"⚠️ Файл **{file_name}** уже был загружен ранее.")
+        except Exception:
+            pass
+        return
+
     if mime_type and file_name and "." not in file_name:
         extension = mimetypes.guess_extension(mime_type)
         if not extension:
@@ -568,15 +587,21 @@ async def handle_file(message: Message):
     ext = file_name.split('.')[-1].lower() if '.' in file_name else ""
     main_formats = {'jpg', 'jpeg', 'heic', 'mov', 'mp4', 'png', 'avi', 'mkv', 'webm'}
     
+    # Support for Media Groups (Albums)
+    # If message has media_group_id, create a subfolder for the album
+    album_folder = ""
+    if message.media_group_id:
+        album_folder = f"/Альбом_{message.media_group_id}"
+
     # Если файл пришел как документ, но имеет расширение видео/фото, кладем в основную папку
     if ext in main_formats:
-        disk_path = f"{root_folder}/{year}/{month}/{file_name}"
+        disk_path = f"{root_folder}/{year}/{month}{album_folder}/{file_name}"
     else:
-        disk_path = f"{root_folder}/{year}/{month}/Прочее/{file_name}"
+        disk_path = f"{root_folder}/{year}/{month}/Прочее{album_folder}/{file_name}"
     
     # Добавление в БД и очередь (на этом этапе файл уже успешно получен от Telegram)
     if await add_file(file_id, unique_id, message.message_id, message.chat.id, 
-                     file_type or message.content_type, file_name, disk_path):
+                     file_type or message.content_type, file_name, disk_path, file_size, file_hash):
         try:
             # Отправляем сообщение о добавлении в очередь
             queue_size = queue.queue.qsize() + 1

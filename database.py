@@ -16,6 +16,8 @@ async def init_db():
                 disk_path TEXT,
                 status TEXT DEFAULT 'pending',
                 status_reason TEXT,
+                file_size INTEGER,
+                file_hash TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -36,16 +38,25 @@ async def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+
+        # Миграция: добавляем file_size, если колонки нет
+        async with db.execute("PRAGMA table_info(files)") as cursor:
+            columns = await cursor.fetchall()
+            column_names = [col[1] for col in columns]
+            if "file_size" not in column_names:
+                await db.execute("ALTER TABLE files ADD COLUMN file_size INTEGER")
+                logger.info("Migration: added file_size column to files table")
+
         await db.commit()
         logger.info("Database initialized")
 
-async def add_file(file_id, unique_id, msg_id, chat_id, f_type, f_name, path):
+async def add_file(file_id, unique_id, msg_id, chat_id, f_type, f_name, path, file_size=None, file_hash=None):
     async with aiosqlite.connect(config.DB_NAME) as db:
         try:
             await db.execute("""
-                INSERT INTO files (telegram_file_id, telegram_file_unique_id, message_id, chat_id, file_type, file_name, disk_path)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (file_id, unique_id, msg_id, chat_id, f_type, f_name, path))
+                INSERT INTO files (telegram_file_id, telegram_file_unique_id, message_id, chat_id, file_type, file_name, disk_path, file_size, file_hash)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (file_id, unique_id, msg_id, chat_id, f_type, f_name, path, file_size, file_hash))
             await db.commit()
             logger.info(f"Added file to DB: {f_name} ({unique_id})")
             return True
@@ -79,9 +90,15 @@ async def get_pending_files_with_ids():
     """Получить pending файлы с telegram_file_id для восстановления очереди"""
     async with aiosqlite.connect(config.DB_NAME) as db:
         async with db.execute(
-            "SELECT telegram_file_id, telegram_file_unique_id, disk_path, chat_id, message_id FROM files WHERE status = 'pending'"
+            "SELECT telegram_file_id, telegram_file_unique_id, disk_path, chat_id, message_id, file_size FROM files WHERE status = 'pending' ORDER BY file_size ASC"
         ) as cursor:
             return await cursor.fetchall()
+
+async def check_duplicate_file(file_hash):
+    """Проверить наличие файла с таким хешем"""
+    async with aiosqlite.connect(config.DB_NAME) as db:
+        async with db.execute("SELECT disk_path FROM files WHERE file_hash = ? AND status = 'success'", (file_hash,)) as cursor:
+            return await cursor.fetchone()
 
 async def add_notification(chat_id, message_id):
     """Добавить уведомление для последующего удаления"""

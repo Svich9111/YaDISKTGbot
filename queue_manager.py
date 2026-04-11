@@ -7,7 +7,7 @@ from database import update_status, add_notification
 
 class UploadQueue:
     def __init__(self, bot=None):
-        self.queue = asyncio.Queue()
+        self.queue = asyncio.PriorityQueue()
         self.disk = YandexDisk()
         self.workers = []
         self.bot = bot
@@ -23,8 +23,10 @@ class UploadQueue:
             "progress": 0,
             "status": "pending"
         }
-        await self.queue.put((file_path, disk_path, unique_id, bot, chat_id, status_msg_id, yandex_token, file_size))
-        logger.info(f"Added task: {disk_path} | unique_id: {unique_id} | chat_id: {chat_id} | size: {file_size}")
+        # Priority: smaller files first. Use file_size as priority (0 if None)
+        priority = file_size if file_size else float('inf')
+        await self.queue.put((priority, (file_path, disk_path, unique_id, bot, chat_id, status_msg_id, yandex_token, file_size)))
+        logger.info(f"Added task: {disk_path} | unique_id: {unique_id} | chat_id: {chat_id} | size: {file_size} | priority: {priority}")
 
     async def update_progress_message(self, bot, chat_id, message_id, text):
         """Безопасное обновление сообщения статуса"""
@@ -37,7 +39,9 @@ class UploadQueue:
 
     async def worker(self):
         while True:
-            file_path, disk_path, unique_id, bot, chat_id, status_msg_id, yandex_token, file_size = await self.queue.get()
+            priority, task_data = await self.queue.get()
+            file_path, disk_path, unique_id, bot, chat_id, status_msg_id, yandex_token, file_size = task_data
+            
             if bot is None:
                 bot = self.bot
             
@@ -164,6 +168,31 @@ class UploadQueue:
                 break
         logger.info(f"Queue cleared, removed {cleared} tasks")
         return cleared
+
+    async def restore_queue(self):
+        """Восстановить очередь из БД при старте"""
+        from database import get_pending_files_with_ids
+        pending_files = await get_pending_files_with_ids()
+        count = 0
+        for row in pending_files:
+            # telegram_file_id, telegram_file_unique_id, disk_path, chat_id, message_id, file_size
+            # Note: We need to get file_path from telegram again, but we only have file_id.
+            # Since we can't easily get file_path without an API call, we'll rely on the worker to handle it if we pass file_id as path?
+            # Actually, the worker expects a file_path (relative path on TG server).
+            # We need to fetch the file info again.
+            try:
+                if self.bot:
+                    file_info = await self.bot.get_file(row[0])
+                    file_path = file_info.file_path
+                    await self.add_task(
+                        file_path, row[2], row[1], self.bot, row[3], row[4], None, row[5]
+                    )
+                    count += 1
+            except Exception as e:
+                logger.error(f"Failed to restore task {row[1]}: {e}")
+                await update_status(row[1], "error", reason=f"Restore failed: {e}")
+        
+        logger.info(f"Restored {count} tasks from database")
 
     def start_workers(self):
         for _ in range(config.MAX_CONCURRENT_UPLOADS):

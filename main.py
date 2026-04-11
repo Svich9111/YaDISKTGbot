@@ -1,25 +1,25 @@
 import asyncio
-import logging
+import signal
 import sys
 from aiogram import Bot
 from aiogram.types import BotCommand
 from aiogram.exceptions import TelegramAPIError, TelegramConflictError
+from loguru import logger
 import config
 from handlers import router
 from database import init_db, get_pending_files_with_ids, get_expired_notifications, delete_notification
 from queue_manager import UploadQueue
 from loader import dp, queue
+from web_server import run_web_server, stop_web_server, set_bot_running, set_db_healthy
 
-# Настройка логирования
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("bot.log"),
-        logging.StreamHandler(sys.stdout)
-    ]
+# Настройка loguru для cloud-совместимого логирования (stdout only)
+logger.remove()  # Remove default handler
+logger.add(
+    sys.stdout,
+    level=config.LOG_LEVEL,
+    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> - <level>{message}</level>",
+    enqueue=True
 )
-logger = logging.getLogger(__name__)
 
 async def cleanup_notifications(bot: Bot):
     """Фоновая задача для очистки старых уведомлений"""
@@ -48,6 +48,7 @@ async def cleanup_notifications(bot: Bot):
 async def on_startup(bot: Bot, queue: UploadQueue):
     """Действия при запуске бота"""
     await init_db()
+    set_db_healthy(True)
     
     # Установка команд бота
     commands = [
@@ -69,7 +70,14 @@ async def on_startup(bot: Bot, queue: UploadQueue):
             logger.info(f"Restoring {len(pending_files)} pending files from database...")
             restored_count = 0
             for file_data in pending_files:
-                telegram_file_id, unique_id, disk_path, chat_id, message_id = file_data
+                # telegram_file_id, telegram_file_unique_id, disk_path, chat_id, message_id, file_size
+                telegram_file_id = file_data[0]
+                unique_id = file_data[1]
+                disk_path = file_data[2]
+                chat_id = file_data[3]
+                message_id = file_data[4]
+                file_size = file_data[5]
+                
                 try:
                     file = await bot.get_file(telegram_file_id)
                     await queue.add_task(
@@ -80,7 +88,7 @@ async def on_startup(bot: Bot, queue: UploadQueue):
                         chat_id, 
                         message_id,
                         None,        # yandex_token (будет выбран дефолтный)
-                        getattr(file, "file_size", None)  # размер файла для стриминга
+                        file_size    # размер файла для стриминга
                     )
                     restored_count += 1
                 except Exception as e:
@@ -94,6 +102,9 @@ async def on_startup(bot: Bot, queue: UploadQueue):
     logger.info("Bot started successfully")
 
 async def main():
+    # Запуск веб-сервера для health checks (обязательно для Render.com)
+    web_runner = await run_web_server()
+    
     # Подключение роутера
     dp.include_router(router)
     
@@ -111,14 +122,16 @@ async def main():
             queue.set_bot(bot)
             
             await on_startup(bot, queue)
+            set_bot_running(True)
             
             # Запуск поллинга с таймаутом для предотвращения зависаний
-            await dp.start_polling(bot, handle_signals=True, polling_timeout=30)
+            await dp.start_polling(bot, handle_signals=False, polling_timeout=30)
             
         except TelegramConflictError:
             logger.warning("Telegram conflict error (another instance running). Retrying...")
             if bot:
                 await bot.session.close()
+            set_bot_running(False)
             await asyncio.sleep(retry_delay)
             continue
             
@@ -126,6 +139,7 @@ async def main():
             logger.error(f"Telegram API error: {e}")
             if bot:
                 await bot.session.close()
+            set_bot_running(False)
             await asyncio.sleep(retry_delay)
             continue
             
@@ -133,13 +147,18 @@ async def main():
             logger.exception(f"Unexpected error: {e}")
             if bot:
                 await bot.session.close()
+            set_bot_running(False)
             await asyncio.sleep(retry_delay)
             continue
             
         finally:
             if bot:
                 await bot.session.close()
+            set_bot_running(False)
             logger.info("Bot session closed")
+
+    # Cleanup web server on exit
+    await stop_web_server(web_runner)
 
 if __name__ == "__main__":
     try:
