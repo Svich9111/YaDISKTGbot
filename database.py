@@ -2,6 +2,7 @@ import aiosqlite
 import config
 from loguru import logger
 
+
 async def init_db():
     async with aiosqlite.connect(config.DB_NAME) as db:
         await db.execute("""
@@ -50,19 +51,23 @@ async def init_db():
         await db.commit()
         logger.info("Database initialized")
 
+
 async def add_file(file_id, unique_id, msg_id, chat_id, f_type, f_name, path, file_size=None, file_hash=None):
     async with aiosqlite.connect(config.DB_NAME) as db:
         try:
-            await db.execute("""
-                INSERT INTO files (telegram_file_id, telegram_file_unique_id, message_id, chat_id, file_type, file_name, disk_path, file_size, file_hash)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (file_id, unique_id, msg_id, chat_id, f_type, f_name, path, file_size, file_hash))
+            await db.execute(
+                "INSERT INTO files (telegram_file_id, telegram_file_unique_id, message_id, "
+                "chat_id, file_type, file_name, disk_path, file_size, file_hash) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (file_id, unique_id, msg_id, chat_id, f_type, f_name, path, file_size, file_hash),
+            )
             await db.commit()
             logger.info(f"Added file to DB: {f_name} ({unique_id})")
             return True
         except aiosqlite.IntegrityError:
             logger.warning(f"File {unique_id} already exists in DB")
             return False
+
 
 async def clear_pending_files():
     """Очистить все pending файлы из базы данных"""
@@ -73,32 +78,49 @@ async def clear_pending_files():
         logger.info(f"Cleared {cleared_count} pending files from DB")
         return cleared_count
 
+
 async def update_status(unique_id, status, reason=None):
     async with aiosqlite.connect(config.DB_NAME) as db:
         if reason:
-            await db.execute("UPDATE files SET status = ?, status_reason = ? WHERE telegram_file_unique_id = ?", (status, reason, unique_id))
+            await db.execute(
+                "UPDATE files SET status = ?, status_reason = ? "
+                "WHERE telegram_file_unique_id = ?",
+                (status, reason, unique_id),
+            )
         else:
-            await db.execute("UPDATE files SET status = ? WHERE telegram_file_unique_id = ?", (status, unique_id))
+            await db.execute(
+                "UPDATE files SET status = ? WHERE telegram_file_unique_id = ?",
+                (status, unique_id),
+            )
         await db.commit()
+
 
 async def get_pending_files():
     async with aiosqlite.connect(config.DB_NAME) as db:
         async with db.execute("SELECT * FROM files WHERE status = 'pending'") as cursor:
             return await cursor.fetchall()
 
+
 async def get_pending_files_with_ids():
     """Получить pending файлы с telegram_file_id для восстановления очереди"""
     async with aiosqlite.connect(config.DB_NAME) as db:
         async with db.execute(
-            "SELECT telegram_file_id, telegram_file_unique_id, disk_path, chat_id, message_id, file_size FROM files WHERE status = 'pending' ORDER BY file_size ASC"
+            "SELECT telegram_file_id, telegram_file_unique_id, disk_path, "
+            "chat_id, message_id, file_size FROM files WHERE status = 'pending' "
+            "ORDER BY file_size ASC"
         ) as cursor:
             return await cursor.fetchall()
+
 
 async def check_duplicate_file(file_hash):
     """Проверить наличие файла с таким хешем"""
     async with aiosqlite.connect(config.DB_NAME) as db:
-        async with db.execute("SELECT disk_path FROM files WHERE file_hash = ? AND status = 'success'", (file_hash,)) as cursor:
+        async with db.execute(
+            "SELECT disk_path FROM files WHERE file_hash = ? AND status = 'success'",
+            (file_hash,),
+        ) as cursor:
             return await cursor.fetchone()
+
 
 async def add_notification(chat_id, message_id):
     """Добавить уведомление для последующего удаления"""
@@ -109,13 +131,16 @@ async def add_notification(chat_id, message_id):
         )
         await db.commit()
 
+
 async def get_expired_notifications(hours=6):
     """Получить уведомления старше указанного количества часов"""
     async with aiosqlite.connect(config.DB_NAME) as db:
         async with db.execute(
-            f"SELECT id, chat_id, message_id FROM notifications WHERE created_at < datetime('now', '-{hours} hours')"
+            "SELECT id, chat_id, message_id FROM notifications "
+            f"WHERE created_at < datetime('now', '-{hours} hours')"
         ) as cursor:
             return await cursor.fetchall()
+
 
 async def delete_notification(notification_id):
     """Удалить запись об уведомлении из БД"""
@@ -123,11 +148,16 @@ async def delete_notification(notification_id):
         await db.execute("DELETE FROM notifications WHERE id = ?", (notification_id,))
         await db.commit()
 
+
 async def get_chat_config(chat_id):
     """Получить настройки чата"""
     async with aiosqlite.connect(config.DB_NAME) as db:
-        async with db.execute("SELECT yandex_token, root_folder, admin_id FROM chats WHERE chat_id = ?", (chat_id,)) as cursor:
+        async with db.execute(
+            "SELECT yandex_token, root_folder, admin_id FROM chats WHERE chat_id = ?",
+            (chat_id,),
+        ) as cursor:
             return await cursor.fetchone()
+
 
 async def get_all_chats():
     """Получить список всех чатов с настройками"""
@@ -149,13 +179,14 @@ async def is_admin_of_chat(user_id, chat_id, bot) -> bool:
     row = await get_chat_config(chat_id)
     return row is not None and row[2] == user_id
 
+
 async def set_chat_config(chat_id, yandex_token=None, root_folder=None, admin_id=None):
     """Сохранить или обновить настройки чата"""
     async with aiosqlite.connect(config.DB_NAME) as db:
         # Проверяем существование
         async with db.execute("SELECT 1 FROM chats WHERE chat_id = ?", (chat_id,)) as cursor:
             exists = await cursor.fetchone()
-        
+
         if exists:
             updates = []
             params = []
@@ -168,7 +199,7 @@ async def set_chat_config(chat_id, yandex_token=None, root_folder=None, admin_id
             if admin_id is not None:
                 updates.append("admin_id = ?")
                 params.append(admin_id)
-            
+
             if updates:
                 params.append(chat_id)
                 await db.execute(f"UPDATE chats SET {', '.join(updates)} WHERE chat_id = ?", params)

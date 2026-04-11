@@ -6,9 +6,11 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.base import StorageKey
 from aiogram.exceptions import TelegramBadRequest
 import config
-from database import add_file, get_pending_files, clear_pending_files, add_notification, get_chat_config, set_chat_config, get_all_chats, is_admin_of_chat, check_duplicate_file
-from queue_manager import UploadQueue
-from datetime import datetime
+from database import (
+    add_file, get_pending_files, clear_pending_files, add_notification,
+    get_chat_config, set_chat_config, get_all_chats, is_admin_of_chat,
+    check_duplicate_file,
+)
 import time
 from yandex_disk import YandexDisk
 from loguru import logger
@@ -38,18 +40,21 @@ class SetupStates(StatesGroup):
     waiting_for_token = State()
     waiting_for_folder = State()
 
+
 @router.my_chat_member(ChatMemberUpdatedFilter(member_status_changed=IS_NOT_MEMBER >> IS_MEMBER))
 async def on_user_join(event: ChatMemberUpdated, bot):
     """Бот добавлен в новый чат"""
     chat_id = event.chat.id
     chat_title = event.chat.title or "Private Chat"
-    
+
     # Проверяем, есть ли уже конфиг
     chat_config = await get_chat_config(chat_id)
     if not chat_config:
         # Устанавливаем дефолтные значения
-        await set_chat_config(chat_id, root_folder=chat_title, admin_id=event.from_user.id)
-        
+        await set_chat_config(
+            chat_id, root_folder=chat_title, admin_id=event.from_user.id,
+        )
+
         await bot.send_message(
             chat_id,
             f"👋 Привет! Я добавлен в чат **{chat_title}**.\n"
@@ -58,12 +63,18 @@ async def on_user_join(event: ChatMemberUpdated, bot):
             f"Чтобы настроить свой токен или изменить папку, используйте команду /configure"
         )
 
+
 @router.message(Command("configure"))
 async def configure_command(message: Message, state: FSMContext):
     """Настройка бота для текущего чата"""
     # Разрешаем настройку только админам чата или владельцу бота
-    chat_member = await message.bot.get_chat_member(message.chat.id, message.from_user.id)
-    if message.chat.type != "private" and chat_member.status not in ("administrator", "creator") and message.from_user.id != config.ADMIN_ID:
+    chat_member = await message.bot.get_chat_member(
+        message.chat.id, message.from_user.id,
+    )
+    is_not_private = message.chat.type != "private"
+    is_not_admin = chat_member.status not in ("administrator", "creator")
+    is_not_owner = message.from_user.id != config.ADMIN_ID
+    if is_not_private and is_not_admin and is_not_owner:
         await message.reply("❌ Настройка доступна только администраторам чата.")
         return
 
@@ -76,7 +87,9 @@ async def configure_command(message: Message, state: FSMContext):
                 f"⚙️ **Настройка интеграции для чата: {message.chat.title}**\n\n"
                 "Для работы бота необходимо указать OAuth токен Яндекс.Диска.\n\n"
                 "📝 **Как получить токен:**\n"
-                "1. Перейдите по ссылке: https://oauth.yandex.ru/authorize?response_type=token&client_id=YOUR_CLIENT_ID\n"
+                "1. Перейдите по ссылке: "
+                "https://oauth.yandex.ru/authorize?response_type=token"
+                "&client_id=YOUR_CLIENT_ID\n"
                 "   *(Если у вас нет своего приложения, создайте его на https://oauth.yandex.ru/)*\n"
                 "2. Разрешите доступ приложению.\n"
                 "3. Скопируйте полученный токен.\n\n"
@@ -96,11 +109,15 @@ async def configure_command(message: Message, state: FSMContext):
             pm_state = FSMContext(storage=storage, key=pm_key)
             await pm_state.update_data(configuring_chat_id=message.chat.id)
             await pm_state.set_state(SetupStates.waiting_for_token)
-            
-            await message.reply("📩 Инструкция по настройке отправлена вам в личные сообщения.")
-        except Exception as e:
+
             await message.reply(
-                "❌ Не удалось отправить сообщение в ЛС. Пожалуйста, сначала напишите боту /start в личные сообщения, а затем повторите команду."
+                "📩 Инструкция по настройке отправлена вам в личные сообщения.",
+            )
+        except Exception:
+            await message.reply(
+                "❌ Не удалось отправить сообщение в ЛС. "
+                "Пожалуйста, сначала напишите боту /start в личные сообщения, "
+                "а затем повторите команду.",
             )
         return
 
@@ -110,7 +127,8 @@ async def configure_command(message: Message, state: FSMContext):
         "⚙️ **Настройка интеграции**\n\n"
         "Для работы бота необходимо указать OAuth токен Яндекс.Диска.\n\n"
         "📝 **Как получить токен:**\n"
-        "1. Перейдите по ссылке: https://oauth.yandex.ru/authorize?response_type=token&client_id=YOUR_CLIENT_ID\n"
+        "1. Перейдите по ссылке: https://oauth.yandex.ru/authorize"
+        "?response_type=token&client_id=YOUR_CLIENT_ID\n"
         "   *(Если у вас нет своего приложения, создайте его на https://oauth.yandex.ru/)*\n"
         "2. Разрешите доступ приложению.\n"
         "3. Скопируйте полученный токен.\n\n"
@@ -124,15 +142,17 @@ async def configure_command(message: Message, state: FSMContext):
     await state.update_data(configuring_chat_id=message.chat.id)
     await state.set_state(SetupStates.waiting_for_token)
 
+
 @router.message(SetupStates.waiting_for_token)
 async def process_token(message: Message, state: FSMContext):
     token = message.text.strip()
-    if token.lower() == 'skip':
-        await message.reply("❌ Токен обязателен. Пожалуйста, введите токен Яндекс.Диска:")
+    if token.lower() == "skip":
+        await message.reply(
+            "❌ Токен обязателен. Пожалуйста, введите токен Яндекс.Диска:",
+        )
         return
-    
+
     # Проверяем токен Яндекс.Диска перед сохранением
-    from yandex_disk import YandexDisk
     try:
         disk = YandexDisk(token=token)
         disk_info = await disk.get_disk_info()
@@ -142,8 +162,8 @@ async def process_token(message: Message, state: FSMContext):
                 "Проверьте токен и отправьте его ещё раз."
             )
             return
-    except Exception as e:
-        logger.exception(f"Error while validating Yandex token: {e}")
+    except Exception:
+        logger.exception("Error while validating Yandex token")
         await message.reply(
             "❌ Произошла ошибка при проверке токена Яндекс.Диска.\n"
             "Попробуйте ещё раз чуть позже или проверьте корректность токена."
@@ -175,9 +195,10 @@ async def process_token(message: Message, state: FSMContext):
     except Exception:
         pass
     msg = "\n".join(msg_lines)
-    
+
     await message.reply(f"{msg}\nВведите название корневой папки для этого чата (или 'skip' для текущей):")
     await state.set_state(SetupStates.waiting_for_folder)
+
 
 @router.message(SetupStates.waiting_for_folder)
 async def process_folder(message: Message, state: FSMContext):
@@ -214,7 +235,7 @@ async def process_folder(message: Message, state: FSMContext):
             logger.warning(f"Failed to create root folder '{folder}' on Yandex.Disk: {e}")
     else:
         msg = "⏩ Папка оставлена без изменений."
-    
+
     # Сообщаем в ЛС, какой чат был настроен
     target_chat_id = configuring_chat_id
     target_chat_text = f"ID чата: `{target_chat_id}`"
@@ -227,8 +248,9 @@ async def process_folder(message: Message, state: FSMContext):
 
     await message.reply(
         f"{msg}{link_text}\n\n🎉 Настройка завершена!\n"
-        f"Теперь файлы из {target_chat_text} будут загружаться с новыми параметрами."
-    , parse_mode="Markdown")
+        f"Теперь файлы из {target_chat_text} будут загружаться с новыми параметрами.",
+        parse_mode="Markdown",
+    )
 
     # Пытаемся отправить короткое подтверждение прямо в настраиваемый чат (если это не ЛС)
     try:
@@ -242,6 +264,7 @@ async def process_folder(message: Message, state: FSMContext):
         pass
 
     await state.clear()
+
 
 @router.message(Command("start"))
 async def start_command(message: Message):
@@ -259,7 +282,7 @@ async def start_command(message: Message):
         "/configure - Настройка токена и папки\n"
         "/status - Проверка статуса подключения\n"
     )
-    
+
     # Дополнительные команды для владельца бота и админов чатов
     if await can_use_admin_commands(message):
         welcome_text += (
@@ -284,31 +307,33 @@ async def status_command(message: Message):
     uptime = time.time() - start_time
     hours, rem = divmod(uptime, 3600)
     minutes, seconds = divmod(rem, 60)
-    
+
     disk = YandexDisk()
     disk_info = await disk.get_disk_info()
-    
+
     pending_files = await get_pending_files()
     queue_size = len(pending_files)
-    
+
     status_text = (
         f"🤖 **Bot Status**\n"
         f"⏱ Uptime: {int(hours)}h {int(minutes)}m {int(seconds)}s\n"
         f"📂 Queue size: {queue_size}\n"
     )
-    
+
     if pending_files:
         status_text += "\n**Pending Files:**\n"
-        
+
         # Получаем активные загрузки из очереди
         active_uploads = queue.active_uploads if queue else {}
-        
-        for file in pending_files[:5]: # Show top 5
-            # file structure: id, telegram_file_id, telegram_file_unique_id, message_id, chat_id, file_type, file_name, disk_path, status, status_reason, file_size, file_hash, created_at
+
+        for file in pending_files[:5]:  # Show top 5
+            # file structure: (id, telegram_file_id, telegram_file_unique_id, message_id,
+            # chat_id, file_type, file_name, disk_path, status, status_reason,
+            # file_size, file_hash, created_at)
             # Note: indices shifted because of new columns
             unique_id = file[2]
             file_name = file[6]
-            
+
             if unique_id in active_uploads:
                 upload_info = active_uploads[unique_id]
                 status = upload_info.get("status")
@@ -321,12 +346,12 @@ async def status_command(message: Message):
                     status_text += f"- {file_name} - В обработке\n"
             else:
                 status_text += f"- {file_name} - ожидает загрузки\n"
-                
+
         if len(pending_files) > 5:
             status_text += f"... and {len(pending_files) - 5} more\n"
     else:
         status_text += "\n**Pending Files:** None\n"
-    
+
     if disk_info:
         total_space = disk_info.get('total_space', 0) / (1024**3)
         used_space = disk_info.get('used_space', 0) / (1024**3)
@@ -345,7 +370,11 @@ async def status_command(message: Message):
     try:
         await message.bot.send_message(
             target_dm_id,
-            "🔔 Проверка доставки уведомлений (/status). Если вы видите это — уведомления о загрузках будут приходить в ЛС."
+            (
+                "🔔 Проверка доставки уведомлений (/status). "
+                "Если вы видите это — уведомления о загрузках "
+                "будут приходить в ЛС."
+            ),
         )
         status_text += "\n✅ **ЛС (уведомления):** бот может отправлять сообщения в личку."
     except Exception as e:
@@ -377,31 +406,36 @@ async def status_command(message: Message):
                 pass
 
             folder_display = root_folder or config.ROOT_FOLDER
-            status_text += f"- {chat_label} (ID: `{chat_id}`), папка: `{folder_display}`\n"
+            status_text += (
+                    f"- {chat_label} (ID: `{chat_id}`), "
+                    f"папка: `{folder_display}`\n"
+                )
             shown += 1
 
         if len(chats) > max_chats_to_show:
             status_text += f"... и ещё {len(chats) - max_chats_to_show} чатов\n"
-        
+
     await message.reply(status_text, parse_mode="Markdown")
+
 
 @router.message(Command("clear_queue"))
 async def clear_queue_command(message: Message):
     if not await can_use_admin_commands(message):
         return
-    
+
     if not queue:
         await message.reply("❌ Ошибка: Очередь загрузки не инициализирована.")
         return
-    
+
     cleared_count = await queue.clear_queue()
     db_cleared = await clear_pending_files()
-    
+
     await message.reply(
         f"🗑 Очередь очищена\n"
         f"📂 Удалено из очереди: {cleared_count}\n"
         f"💾 Удалено из БД: {db_cleared}"
     )
+
 
 @router.message(F.content_type.in_({'photo', 'video', 'document', 'audio', 'voice', 'video_note', 'animation'}))
 async def handle_file(message: Message):
@@ -413,13 +447,13 @@ async def handle_file(message: Message):
             await message.reply("❌ Ошибка: Очередь загрузки не инициализирована.")
             return
         queue = q
-    
+
     file_id = None
     unique_id = None
     file_name = None
     file_type = None
     mime_type = None
-    
+
     # Определение типа файла и извлечение данных
     if message.photo:
         file_id = message.photo[-1].file_id
@@ -495,23 +529,23 @@ async def handle_file(message: Message):
 
     date = message.date
     year = date.strftime("%Y")
-    
+
     months_ru = {
         1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель",
         5: "Май", 6: "Июнь", 7: "Июль", 8: "Август",
         9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь"
     }
     month = months_ru[date.month]
-    
+
     # Получаем настройки чата
     chat_config = await get_chat_config(message.chat.id)
-    
+
     # Дефолтные настройки: используем глобальный токен и корневую папку.
     # Уведомления по умолчанию отправляем в ЛС пользователя, который прислал файл.
     root_folder = config.ROOT_FOLDER
     yandex_token = config.YANDEX_DISK_TOKEN
     notification_chat_id = message.from_user.id
-    
+
     # Если запись для этого чата ещё не создана (новая группа/канал) — создаём её
     if not chat_config and message.chat.type != "private":
         await set_chat_config(
@@ -521,7 +555,7 @@ async def handle_file(message: Message):
             admin_id=message.from_user.id,
         )
         chat_config = await get_chat_config(message.chat.id)
-    
+
     if chat_config:
         token, folder, admin_id = chat_config
         if token:
@@ -542,7 +576,7 @@ async def handle_file(message: Message):
         chat_config[2] if chat_config and len(chat_config) > 2 else None,
         notification_chat_id,
     )
-    
+
     # Если ни глобальный, ни чатовый токен не заданы, просим настроить
     if not yandex_token:
         await message.reply(
@@ -551,7 +585,7 @@ async def handle_file(message: Message):
             f"ℹ️ ID этого чата: `{message.chat.id}`"
         )
         return
-    
+
     # Проверяем файл на стороне Telegram (до записи в БД и постановки в очередь)
     try:
         file = await message.bot.get_file(file_id)
@@ -582,11 +616,11 @@ async def handle_file(message: Message):
             "❌ Произошла ошибка при получении файла от Telegram. Попробуйте снова."
         )
         return
-    
+
     # Определение пути на диске
     ext = file_name.split('.')[-1].lower() if '.' in file_name else ""
     main_formats = {'jpg', 'jpeg', 'heic', 'mov', 'mp4', 'png', 'avi', 'mkv', 'webm'}
-    
+
     # Support for Media Groups (Albums)
     # If message has media_group_id, create a subfolder for the album
     album_folder = ""
@@ -598,20 +632,26 @@ async def handle_file(message: Message):
         disk_path = f"{root_folder}/{year}/{month}{album_folder}/{file_name}"
     else:
         disk_path = f"{root_folder}/{year}/{month}/Прочее{album_folder}/{file_name}"
-    
+
     # Добавление в БД и очередь (на этом этапе файл уже успешно получен от Telegram)
-    if await add_file(file_id, unique_id, message.message_id, message.chat.id, 
-                     file_type or message.content_type, file_name, disk_path, file_size, file_hash):
+    if await add_file(
+        file_id, unique_id, message.message_id, message.chat.id,
+        file_type or message.content_type, file_name, disk_path, file_size, file_hash,
+    ):
         try:
             # Отправляем сообщение о добавлении в очередь
             queue_size = queue.queue.qsize() + 1
-            
+
             # Отправляем уведомление
             # Если notification_chat_id определен (это ЛС админа или того кто добавил бота)
             try:
                 status_msg = await message.bot.send_message(
-                    notification_chat_id, 
-                    f"⏳ Файл **{file_name}** из чата **{message.chat.title or 'Private'}** добавлен в очередь (позиция: {queue_size})..."
+                    notification_chat_id,
+                    (
+                        f"⏳ Файл **{file_name}** из чата "
+                        f"**{message.chat.title or 'Private'}** добавлен в очередь "
+                        f"(позиция: {queue_size})..."
+                    )
                 )
                 # Регистрируем сообщение для последующего удаления
                 await add_notification(notification_chat_id, status_msg.message_id)
@@ -619,17 +659,20 @@ async def handle_file(message: Message):
             except Exception as e:
                 logger.warning(f"Could not send DM to {notification_chat_id}: {e}. Sending to source chat.")
                 # Если не удалось отправить в ЛС (например, бот не стартован у юзера), шлем в чат источника
-                status_msg = await message.reply(f"⏳ Файл **{file_name}** добавлен в очередь (позиция: {queue_size})...")
+                status_msg = await message.reply(
+                    f"⏳ Файл **{file_name}** добавлен в очередь "
+                    f"(позиция: {queue_size})..."
+                )
                 await add_notification(message.chat.id, status_msg.message_id)
                 target_chat_id = message.chat.id
-            
+
             # Добавляем задачу в очередь
             await queue.add_task(
-                file.file_path, 
-                disk_path, 
-                unique_id, 
-                message.bot, 
-                target_chat_id, 
+                file.file_path,
+                disk_path,
+                unique_id,
+                message.bot,
+                target_chat_id,
                 status_msg.message_id,
                 yandex_token,  # Передаем токен чата
                 file_size      # Размер файла для прогресса и стриминга
@@ -639,29 +682,41 @@ async def handle_file(message: Message):
             logger.exception(f"Error adding task to queue: {e}")
             # Отправляем ошибку в тот же чат, куда и уведомления
             try:
-                err_msg = await message.bot.send_message(notification_chat_id, f"❌ Ошибка при добавлении файла **{file_name}** в очередь: {e}")
+                err_msg = await message.bot.send_message(
+                    notification_chat_id,
+                    f"❌ Ошибка при добавлении файла **{file_name}** "
+                    f"в очередь: {e}",
+                )
                 await add_notification(notification_chat_id, err_msg.message_id)
-            except:
-                await message.reply(f"❌ Ошибка при добавлении файла **{file_name}** в очередь: {e}")
+            except Exception:
+                await message.reply(
+                    f"❌ Ошибка при добавлении файла "
+                    f"**{file_name}** в очередь: {e}"
+                )
     else:
         logger.warning(f"File {file_name} already exists in DB or failed to add")
         # Уведомляем о дубликате
         try:
             dup_msg = await message.bot.send_message(
-                notification_chat_id, 
-                f"⚠️ Файл **{file_name}** уже был загружен или находится в очереди."
+                notification_chat_id,
+                f"⚠️ Файл **{file_name}** уже был загружен "
+                f"или находится в очереди."
             )
             await add_notification(notification_chat_id, dup_msg.message_id)
         except Exception as e:
             logger.warning(f"Could not send duplicate notification to {notification_chat_id}: {e}")
             # Если не удалось в ЛС, можно отправить в чат, но лучше не спамить
-            # await message.reply(f"⚠️ Файл **{file_name}** уже был загружен или находится в очереди.")
+            # await message.reply(
+            #     f"⚠️ Файл **{file_name}** уже был загружен "
+            #     f"или находится в очереди."
+            # )
+
 
 @router.message(Command("export_all"))
 async def export_all(message: Message):
     if not await can_use_admin_commands(message):
         return
-    
+
     await message.reply("⚠️ Standard Telegram Bots cannot read chat history due to API limitations.\n"
                         "Only new messages since the bot joined are processed.\n"
                         "To export old history, please forward messages to me or use a Userbot solution.")

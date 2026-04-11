@@ -2,7 +2,7 @@
 HTTP web server for Render.com health checks.
 Render requires a service that binds to $PORT and responds to HTTP requests.
 """
-import asyncio
+import time
 from aiohttp import web
 import config
 from loguru import logger
@@ -26,7 +26,6 @@ def set_db_healthy(healthy: bool):
 async def health_handler(request: web.Request) -> web.Response:
     """Health check endpoint for Render monitoring."""
     global _last_health_check
-    import time
     _last_health_check = time.time()
 
     status = {
@@ -52,11 +51,13 @@ async def ready_handler(request: web.Request) -> web.Response:
 
 async def root_handler(request: web.Request) -> web.Response:
     """Root endpoint."""
-    return web.json_response({
-        "service": "yandex-disk-tg-bot",
-        "version": "1.0.0",
-        "endpoints": ["/health", "/ready"]
-    })
+    return web.json_response(
+        {
+            "service": "yandex-disk-tg-bot",
+            "version": "1.0.0",
+            "endpoints": ["/health", "/ready"],
+        },
+    )
 
 
 def create_app() -> web.Application:
@@ -75,7 +76,9 @@ async def run_web_server():
     await runner.setup()
     site = web.TCPSite(runner, config.WEB_HOST, config.WEB_PORT)
     await site.start()
-    logger.info(f"Web server started on http://{config.WEB_HOST}:{config.WEB_PORT}")
+    logger.info(
+        f"Web server started on http://{config.WEB_HOST}:{config.WEB_PORT}",
+    )
     return runner
 
 

@@ -1,16 +1,18 @@
 import asyncio
 import aiohttp
+import sys
 import config
 from database import init_db
-import sys
 from loguru import logger
+
 
 async def check_yandex_disk():
     """Проверка доступности Яндекс.Диска"""
     url = "https://cloud-api.yandex.net/v1/disk"
-    headers = {
-        "Authorization": f"OAuth {config.YANDEX_DISK_TOKEN}" if not config.YANDEX_DISK_TOKEN.startswith("OAuth") else config.YANDEX_DISK_TOKEN
-    }
+    token = config.YANDEX_DISK_TOKEN
+    if not token.startswith("OAuth"):
+        token = f"OAuth {token}"
+    headers = {"Authorization": token}
     try:
         # Disable SSL verification for healthcheck
         connector = aiohttp.TCPConnector(ssl=False)
@@ -22,9 +24,10 @@ async def check_yandex_disk():
                 else:
                     logger.error(f"❌ Yandex Disk API error: {resp.status}")
                     return False
-    except Exception as e:
-        logger.error(f"❌ Yandex Disk connection failed: {e}")
+    except Exception:
+        logger.exception("❌ Yandex Disk connection failed")
         return False
+
 
 async def check_telegram():
     """Проверка токена Telegram"""
@@ -40,9 +43,10 @@ async def check_telegram():
                 else:
                     logger.error(f"❌ Telegram Bot API error: {resp.status}")
                     return False
-    except Exception as e:
-        logger.error(f"❌ Telegram connection failed: {e}")
+    except Exception:
+        logger.exception("❌ Telegram connection failed")
         return False
+
 
 async def check_db():
     """Проверка базы данных"""
@@ -50,25 +54,27 @@ async def check_db():
         await init_db()
         logger.info("✅ Database is accessible")
         return True
-    except Exception as e:
-        logger.error(f"❌ Database error: {e}")
+    except Exception:
+        logger.exception("❌ Database error")
         return False
+
 
 async def main():
     logger.info("Starting health check...")
-    
+
     results = await asyncio.gather(
         check_yandex_disk(),
         check_telegram(),
-        check_db()
+        check_db(),
     )
-    
+
     if all(results):
         logger.info("🚀 All systems operational!")
         sys.exit(0)
     else:
         logger.error("⚠️ Some systems are down!")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
