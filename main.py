@@ -81,9 +81,9 @@ async def on_startup(bot: Bot, queue: UploadQueue):
         )
         logger.info(f"Webhook set to: {config.WEBHOOK_URL}")
     else:
-        # Не удаляем pending updates, чтобы бот мог обработать сообщения, пришедшие во время простоя
-        await bot.delete_webhook(drop_pending_updates=False)
-        logger.info("Webhook deleted, using polling")
+        # Принудительно удаляем вебхук и сбрасываем старые обновления для устранения конфликтов
+        await bot.delete_webhook(drop_pending_updates=True)
+        logger.info("Webhook deleted (with drop_pending_updates), using polling")
 
     # Установка команд бота
     commands = [
