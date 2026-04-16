@@ -183,7 +183,27 @@ async def main():
         bot = None
         try:
             logger.info(f"Starting bot session (attempt {attempt + 1})")
-            bot = Bot(token=config.BOT_TOKEN)
+            
+            # Инициализация бота с поддержкой локального сервера API
+            from aiogram.client.default import DefaultBotProperties
+            from aiogram.client.telegram import TelegramAPIServer
+            
+            if config.TELEGRAM_API_URL:
+                # Если задан локальный сервер, используем его
+                server = TelegramAPIServer.from_base(config.TELEGRAM_API_URL)
+                bot = Bot(
+                    token=config.BOT_TOKEN,
+                    server=server,
+                    default=DefaultBotProperties(parse_mode="Markdown")
+                )
+                logger.info(f"Using Local Bot API Server: {config.TELEGRAM_API_URL}")
+            else:
+                # Стандартный сервер Telegram
+                bot = Bot(
+                    token=config.BOT_TOKEN,
+                    default=DefaultBotProperties(parse_mode="Markdown")
+                )
+            
             queue.set_bot(bot)
 
             await on_startup(bot, queue)

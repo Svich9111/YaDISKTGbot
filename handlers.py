@@ -612,14 +612,13 @@ async def handle_file(message: Message):
         file = await message.bot.get_file(file_id)
         file_size = getattr(file, "file_size", None)
         
-        # Лимит Telegram Bot API для скачивания файлов - 20 МБ
+        # Лимит Telegram Bot API для скачивания файлов - 20 МБ (только если не используем локальный сервер)
         TG_DOWNLOAD_LIMIT = 20 * 1024 * 1024
-        if file_size is not None and file_size > TG_DOWNLOAD_LIMIT:
+        if not config.TELEGRAM_API_URL and file_size is not None and file_size > TG_DOWNLOAD_LIMIT:
             await message.bot.send_message(
                 notification_chat_id,
                 f"⚠️ Файл **{file_name}** слишком большой ({file_size / (1024**2):.1f} МБ).\n"
-                f"Стандартные боты Telegram не могут скачивать файлы более 20 МБ.\n"
-                f"Пожалуйста, отправьте файл меньшего размера или используйте Userbot."
+                f"Без локального сервера API боты не могут скачивать файлы более 20 МБ."
             )
             return
 

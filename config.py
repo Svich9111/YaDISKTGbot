@@ -57,6 +57,9 @@ WEBHOOK_HOST = _get_env("WEBHOOK_HOST")  # e.g., https://your-app.onrender.com
 WEBHOOK_PATH = _get_env("WEBHOOK_PATH", f"/webhook/{BOT_TOKEN}")
 WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}" if WEBHOOK_HOST else None
 
+# Local Bot API Server
+TELEGRAM_API_URL = _get_env("TELEGRAM_API_URL")  # e.g., http://localhost:8081
+
 # Sentry
 SENTRY_DSN = _get_env("SENTRY_DSN")
 
