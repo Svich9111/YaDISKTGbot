@@ -45,5 +45,16 @@ MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024
 WEB_HOST = _get_env("WEB_HOST", "0.0.0.0")
 WEB_PORT = int(_get_env("PORT", "10000"))
 
+# Webhook settings
+WEBHOOK_HOST = _get_env("WEBHOOK_HOST")  # e.g., https://your-app.onrender.com
+WEBHOOK_PATH = _get_env("WEBHOOK_PATH", f"/webhook/{BOT_TOKEN}")
+WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}" if WEBHOOK_HOST else None
+
+# Sentry
+SENTRY_DSN = _get_env("SENTRY_DSN")
+
+# Redis
+REDIS_URL = _get_env("REDIS_URL")
+
 # Log level
 LOG_LEVEL = _get_env("LOG_LEVEL", "INFO")

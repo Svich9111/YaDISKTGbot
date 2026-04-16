@@ -1,5 +1,6 @@
 import asyncio
 import sys
+import sentry_sdk
 from aiogram import Bot
 from aiogram.types import BotCommand
 from aiogram.exceptions import TelegramAPIError, TelegramConflictError
@@ -13,6 +14,15 @@ from database import (
 from queue_manager import UploadQueue
 from loader import dp, queue
 from web_server import run_web_server, stop_web_server, set_bot_running, set_db_healthy
+
+# Sentry initialization
+if config.SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=config.SENTRY_DSN,
+        traces_sample_rate=1.0,
+        profiles_sample_rate=1.0,
+    )
+    logger.info("Sentry initialized")
 
 # Настройка loguru для cloud-совместимого логирования (stdout only)
 logger.remove()  # Remove default handler
@@ -62,6 +72,19 @@ async def on_startup(bot: Bot, queue: UploadQueue):
     await init_db()
     set_db_healthy(True)
 
+    # Настройка Webhook если URL задан
+    if config.WEBHOOK_URL:
+        await bot.set_webhook(
+            url=config.WEBHOOK_URL,
+            drop_pending_updates=False,
+            allowed_updates=["message", "callback_query", "my_chat_member", "chat_member"]
+        )
+        logger.info(f"Webhook set to: {config.WEBHOOK_URL}")
+    else:
+        # Не удаляем pending updates, чтобы бот мог обработать сообщения, пришедшие во время простоя
+        await bot.delete_webhook(drop_pending_updates=False)
+        logger.info("Webhook deleted, using polling")
+
     # Установка команд бота
     commands = [
         BotCommand(command="start", description="Запустить бота"),
@@ -109,15 +132,10 @@ async def on_startup(bot: Bot, queue: UploadQueue):
     except Exception as e:
         logger.error(f"Error restoring queue from DB: {e}")
 
-    # Не удаляем pending updates, чтобы бот мог обработать сообщения, пришедшие во время простоя
-    await bot.delete_webhook(drop_pending_updates=False)
     logger.info("Bot started successfully")
 
 
 async def main():
-    # Запуск веб-сервера для health checks (обязательно для Render.com)
-    web_runner = await run_web_server()
-
     # Подключение роутера
     dp.include_router(router)
 
@@ -134,11 +152,21 @@ async def main():
             bot = Bot(token=config.BOT_TOKEN)
             queue.set_bot(bot)
 
+            # Запуск веб-сервера для health checks и webhooks
+            web_runner = await run_web_server(bot, dp)
+
             await on_startup(bot, queue)
             set_bot_running(True)
 
-            # Запуск поллинга с таймаутом для предотвращения зависаний
-            await dp.start_polling(bot, handle_signals=False, polling_timeout=30)
+            if config.WEBHOOK_URL:
+                # В режиме вебхуков просто ждем, пока веб-сервер работает
+                logger.info("Bot is running in Webhook mode")
+                while True:
+                    await asyncio.sleep(3600)
+            else:
+                # Запуск поллинга с таймаутом для предотвращения зависаний
+                logger.info("Bot is running in Polling mode")
+                await dp.start_polling(bot, handle_signals=False, polling_timeout=30)
 
         except TelegramConflictError:
             logger.warning("Telegram conflict error (another instance running). Retrying...")

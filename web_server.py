@@ -4,6 +4,8 @@ Render requires a service that binds to $PORT and responds to HTTP requests.
 """
 import time
 from aiohttp import web
+from aiogram import Bot, Dispatcher
+from aiogram.types import Update
 import config
 from loguru import logger
 
@@ -55,23 +57,44 @@ async def root_handler(request: web.Request) -> web.Response:
         {
             "service": "yandex-disk-tg-bot",
             "version": "1.0.0",
-            "endpoints": ["/health", "/ready"],
+            "endpoints": ["/health", "/ready", "/webhook"],
         },
     )
 
 
-def create_app() -> web.Application:
+async def webhook_handler(request: web.Request) -> web.Response:
+    """Handle incoming Telegram updates via webhook."""
+    bot: Bot = request.app["bot"]
+    dp: Dispatcher = request.app["dp"]
+
+    try:
+        update = Update.model_validate(await request.json(), context={"bot": bot})
+        await dp.feed_update(bot, update)
+        return web.Response(status=200)
+    except Exception as e:
+        logger.error(f"Error processing webhook update: {e}")
+        return web.Response(status=500)
+
+
+def create_app(bot: Bot = None, dp: Dispatcher = None) -> web.Application:
     """Create and configure the aiohttp application."""
     app = web.Application()
+    app["bot"] = bot
+    app["dp"] = dp
     app.router.add_get("/", root_handler)
     app.router.add_get("/health", health_handler)
     app.router.add_get("/ready", ready_handler)
+
+    if config.WEBHOOK_URL:
+        app.router.add_post(config.WEBHOOK_PATH, webhook_handler)
+        logger.info(f"Webhook path registered: {config.WEBHOOK_PATH}")
+
     return app
 
 
-async def run_web_server():
+async def run_web_server(bot: Bot = None, dp: Dispatcher = None):
     """Start the web server on the configured port."""
-    app = create_app()
+    app = create_app(bot, dp)
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, config.WEB_HOST, config.WEB_PORT)

@@ -646,18 +646,21 @@ async def handle_file(message: Message):
     ):
         try:
             # Отправляем сообщение о добавлении в очередь
-            queue_size = queue.queue.qsize() + 1
+            from loader import queue as q_instance
+            current_queue = queue or q_instance
+            
+            queue_size = current_queue.queue.qsize() + 1
+            status_msg = await message.reply(
+                f"⏳ Файл **{file_name}** добавлен в очередь.\n📂 Позиция: {queue_size}",
+                parse_mode="Markdown"
+            )
 
-            # Отправляем уведомление
-            # Если notification_chat_id определен (это ЛС админа или того кто добавил бота)
-            try:
-                status_msg = await message.bot.send_message(
-                    notification_chat_id,
-                    (
-                        f"⏳ Файл **{file_name}** из чата "
-                        f"**{message.chat.title or 'Private'}** добавлен в очередь "
-                        f"(позиция: {queue_size})..."
-                    )
+            # Добавляем задачу в очередь
+            await current_queue.add_task(
+                file.file_path, disk_path, unique_id, message.bot,
+                message.chat.id, status_msg.message_id,
+                yandex_token, file_size
+            )
                 )
                 # Регистрируем сообщение для последующего удаления
                 await add_notification(notification_chat_id, status_msg.message_id)
