@@ -360,6 +360,9 @@ async def status_command(message: Message):
         # Получаем настройки чата для ссылки на папку
         chat_config = await get_chat_config(message.chat.id)
         root_folder = chat_config[1] if chat_config and chat_config[1] else config.ROOT_FOLDER
+        
+        # Формируем ссылку на корень диска или конкретную папку
+        # Яндекс.Диск ожидает путь в формате /disk/path/to/folder
         encoded_folder = urllib.parse.quote(root_folder)
         folder_url = f"https://disk.yandex.ru/client/disk/{encoded_folder}"
 
@@ -608,24 +611,37 @@ async def handle_file(message: Message):
     try:
         file = await message.bot.get_file(file_id)
         file_size = getattr(file, "file_size", None)
+        
+        # Лимит Telegram Bot API для скачивания файлов - 20 МБ
+        TG_DOWNLOAD_LIMIT = 20 * 1024 * 1024
+        if file_size is not None and file_size > TG_DOWNLOAD_LIMIT:
+            await message.bot.send_message(
+                notification_chat_id,
+                f"⚠️ Файл **{file_name}** слишком большой ({file_size / (1024**2):.1f} МБ).\n"
+                f"Стандартные боты Telegram не могут скачивать файлы более 20 МБ.\n"
+                f"Пожалуйста, отправьте файл меньшего размера или используйте Userbot."
+            )
+            return
+
         if file_size is not None and file_size > config.MAX_FILE_SIZE:
             max_gb = config.MAX_FILE_SIZE / (1024**3)
-            await message.reply(
+            await message.bot.send_message(
+                notification_chat_id,
                 f"❌ Файл слишком большой для загрузки через бота.\n"
                 f"Максимальный размер: {max_gb:.2f} GB."
             )
             return
     except TelegramBadRequest as e:
-        # Специальный случай: Telegram не даёт скачать файл (слишком большой и т.п.).
-        # В этом случае просто пропускаем файл: не ставим в очередь и не шлём уведомления.
         if "file is too big" in str(e):
-            logger.warning(f"Skipping file {file_id} because Telegram reports it is too big")
+            await message.bot.send_message(
+                notification_chat_id,
+                f"⚠️ Telegram блокирует скачивание файла **{file_name}**, так как он больше 20 МБ."
+            )
             return
-        # Остальные BadRequest обрабатываем как обычную ошибку
         logger.exception(f"TelegramBadRequest while getting file {file_id}: {e}")
-        await message.reply(
-            "❌ Telegram не позволяет загрузить этот файл (Bad Request).\n"
-            "Попробуйте другой файл."
+        await message.bot.send_message(
+            notification_chat_id,
+            f"❌ Telegram не позволяет загрузить файл **{file_name}** (Bad Request)."
         )
         return
     except Exception as e:
