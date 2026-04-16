@@ -118,6 +118,8 @@ class UploadQueue:
                                 pass
 
                 for attempt in range(config.RETRY_ATTEMPTS):
+                    logger.info(f"Upload attempt {attempt + 1}/{config.RETRY_ATTEMPTS} for {file_name}")
+                    
                     async def telegram_stream():
                         """
                         Поток читается напрямую из Telegram и сразу отправляется в Яндекс.Диск.
@@ -130,6 +132,7 @@ class UploadQueue:
                         async with aiohttp.ClientSession(connector=connector) as session:
                             async with session.get(tg_url) as resp:
                                 if resp.status != 200:
+                                    logger.error(f"Telegram download failed: {resp.status} for {file_path}")
                                     raise RuntimeError(f"Telegram download failed with status {resp.status}")
                                 async for chunk in resp.content.iter_chunked(chunk_size):
                                     bytes_read += len(chunk)
@@ -137,9 +140,13 @@ class UploadQueue:
                                         await progress_callback(bytes_read, file_size)
                                     yield chunk
 
-                    if await disk_client.upload_file_stream(telegram_stream, disk_path):
-                        success = True
-                        break
+                    try:
+                        if await disk_client.upload_file_stream(telegram_stream, disk_path):
+                            success = True
+                            logger.success(f"Successfully uploaded {file_name} to Yandex.Disk")
+                            break
+                    except Exception as e:
+                        logger.error(f"Upload attempt {attempt + 1} failed: {e}")
                     logger.warning(
                         f"Upload failed, retrying "
                         f"({attempt+1}/{config.RETRY_ATTEMPTS})...",
