@@ -662,17 +662,20 @@ async def handle_file(message: Message):
             queue_size = current_queue.queue.qsize() + 1
             
             # Пытаемся отправить уведомление в ЛС админу чата
+            # Если это приватный чат, уведомление идет туда же.
+            # Если это группа, уведомление идет админу в ЛС.
+            target_chat_id = notification_chat_id
+            
             try:
                 status_msg = await message.bot.send_message(
-                    notification_chat_id,
+                    target_chat_id,
                     f"⏳ Файл **{file_name}** добавлен в очередь.\n📂 Позиция: {queue_size}",
                     parse_mode="Markdown"
                 )
                 # Регистрируем сообщение для последующего удаления
-                await add_notification(notification_chat_id, status_msg.message_id)
-                target_chat_id = notification_chat_id
+                await add_notification(target_chat_id, status_msg.message_id)
             except Exception as e:
-                logger.warning(f"Could not send DM to {notification_chat_id}: {e}. Sending to source chat.")
+                logger.warning(f"Could not send DM to {target_chat_id}: {e}. Falling back to source chat.")
                 # Если не удалось отправить в ЛС (например, бот не стартован у юзера), шлем в чат источника
                 status_msg = await message.reply(
                     f"⏳ Файл **{file_name}** добавлен в очередь "
