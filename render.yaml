@@ -1,17 +1,16 @@
----
 services:
   - type: web
     name: yandex-disk-tg-bot
     env: python
     runtime: python
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.9
     region: frankfurt
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: python main.py
     healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
       - key: BOT_TOKEN
         sync: false
       - key: YANDEX_DISK_TOKEN
@@ -22,3 +21,9 @@ services:
         value: INFO
       - key: MAX_CONCURRENT_UPLOADS
         value: "5"
+      - key: RENDER
+        value: "true"
+    disk:
+      name: bot-data
+      mountPath: /var/data
+      sizeGB: 1

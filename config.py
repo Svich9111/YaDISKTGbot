@@ -25,7 +25,13 @@ if not YANDEX_DISK_TOKEN:
 ADMIN_ID = int(_get_env("ADMIN_ID", "0"))
 
 # Database - use absolute path for Render.com (ephemeral filesystem)
-DB_NAME = _get_env("DB_NAME", "bot_database.db")
+# On Render, we use /etc/secrets/ or a mounted disk path
+_db_path = _get_env("DB_NAME", "bot_database.db")
+if os.environ.get("RENDER"):
+    # If running on Render, ensure we use the persistent disk path
+    DB_NAME = os.path.join("/var/data", _db_path)
+else:
+    DB_NAME = _db_path
 
 # Yandex Disk paths
 ROOT_FOLDER = _get_env("ROOT_FOLDER", "Фото из телеграмма")
