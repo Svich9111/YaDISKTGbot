@@ -64,7 +64,9 @@ async def root_handler(request: web.Request) -> web.Response:
 
 async def webhook_handler(request: web.Request) -> web.Response:
     """Handle incoming Telegram updates via webhook."""
-    bot: Bot = request.app["bot"]
+    # Получаем актуальный объект бота из очереди или лоадера
+    from loader import queue as q
+    bot: Bot = q.bot if q and q.bot else request.app["bot"]
     dp: Dispatcher = request.app["dp"]
 
     try:

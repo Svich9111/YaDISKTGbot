@@ -145,15 +145,19 @@ async def main():
     retry_delay = 5
     max_retries = 100
 
+    # Запуск веб-сервера для health checks и webhooks (один раз при старте)
+    # Мы создаем временный объект бота для инициализации сервера, 
+    # но в режиме вебхуков он будет обновляться.
+    temp_bot = Bot(token=config.BOT_TOKEN)
+    web_runner = await run_web_server(temp_bot, dp)
+    await temp_bot.session.close()
+
     for attempt in range(max_retries):
         bot = None
         try:
             logger.info(f"Starting bot session (attempt {attempt + 1})")
             bot = Bot(token=config.BOT_TOKEN)
             queue.set_bot(bot)
-
-            # Запуск веб-сервера для health checks и webhooks
-            web_runner = await run_web_server(bot, dp)
 
             await on_startup(bot, queue)
             set_bot_running(True)
@@ -199,7 +203,8 @@ async def main():
             logger.info("Bot session closed")
 
     # Cleanup web server on exit
-    await stop_web_server(web_runner)
+    if 'web_runner' in locals():
+        await stop_web_server(web_runner)
 
 if __name__ == "__main__":
     try:
