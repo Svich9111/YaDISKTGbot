@@ -650,17 +650,13 @@ async def handle_file(message: Message):
             current_queue = queue or q_instance
             
             queue_size = current_queue.queue.qsize() + 1
-            status_msg = await message.reply(
-                f"⏳ Файл **{file_name}** добавлен в очередь.\n📂 Позиция: {queue_size}",
-                parse_mode="Markdown"
-            )
-
-            # Добавляем задачу в очередь
-            await current_queue.add_task(
-                file.file_path, disk_path, unique_id, message.bot,
-                message.chat.id, status_msg.message_id,
-                yandex_token, file_size
-            )
+            
+            # Пытаемся отправить уведомление в ЛС админу чата
+            try:
+                status_msg = await message.bot.send_message(
+                    notification_chat_id,
+                    f"⏳ Файл **{file_name}** добавлен в очередь.\n📂 Позиция: {queue_size}",
+                    parse_mode="Markdown"
                 )
                 # Регистрируем сообщение для последующего удаления
                 await add_notification(notification_chat_id, status_msg.message_id)
@@ -676,7 +672,7 @@ async def handle_file(message: Message):
                 target_chat_id = message.chat.id
 
             # Добавляем задачу в очередь
-            await queue.add_task(
+            await current_queue.add_task(
                 file.file_path,
                 disk_path,
                 unique_id,
