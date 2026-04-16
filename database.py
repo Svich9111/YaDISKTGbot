@@ -1,9 +1,19 @@
 import aiosqlite
 import config
+import os
 from loguru import logger
 
 
 async def init_db():
+    # Обеспечиваем наличие директории для БД
+    db_dir = os.path.dirname(config.DB_NAME)
+    if db_dir and not os.path.exists(db_dir):
+        try:
+            os.makedirs(db_dir, exist_ok=True)
+            logger.info(f"Created directory for database: {db_dir}")
+        except Exception as e:
+            logger.error(f"Failed to create database directory {db_dir}: {e}")
+
     async with aiosqlite.connect(config.DB_NAME) as db:
         await db.execute("""
             CREATE TABLE IF NOT EXISTS files (
