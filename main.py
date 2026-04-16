@@ -1,5 +1,6 @@
 import asyncio
 import sys
+import aiohttp
 import sentry_sdk
 from aiogram import Bot
 from aiogram.types import BotCommand
@@ -37,6 +38,29 @@ logger.add(
     ),
     enqueue=True,
 )
+
+
+async def self_ping():
+    """Фоновая задача для предотвращения засыпания на Render.com"""
+    if not config.WEBHOOK_HOST:
+        return
+
+    url = f"{config.WEBHOOK_HOST}/health"
+    logger.info(f"Self-ping task started for: {url}")
+    
+    async with aiohttp.ClientSession() as session:
+        while True:
+            try:
+                async with session.get(url) as resp:
+                    if resp.status == 200:
+                        logger.info("Self-ping successful (200 OK)")
+                    else:
+                        logger.warning(f"Self-ping returned status: {resp.status}")
+            except Exception as e:
+                logger.error(f"Self-ping failed: {e}")
+            
+            # Пингуем каждые 10 минут (600 секунд)
+            await asyncio.sleep(600)
 
 
 async def cleanup_notifications(bot: Bot):
@@ -97,6 +121,9 @@ async def on_startup(bot: Bot, queue: UploadQueue):
 
     # Запуск задачи очистки уведомлений
     asyncio.create_task(cleanup_notifications(bot))
+    
+    # Запуск задачи само-пинга
+    asyncio.create_task(self_ping())
 
     # Восстановление очереди
     try:
