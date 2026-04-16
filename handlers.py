@@ -423,6 +423,16 @@ async def status_command(message: Message):
         if len(chats) > max_chats_to_show:
             status_text += f"... и ещё {len(chats) - max_chats_to_show} чатов\n"
 
+    # Добавляем ссылки на диагностику для админа
+    if message.from_user.id == config.ADMIN_ID:
+        webhook_host = config.WEBHOOK_HOST or "http://localhost:10000"
+        status_text += (
+            f"\n🛠 **Диагностика сервера:**\n"
+            f"🔗 [Health Check]({webhook_host}/health)\n"
+            f"🔗 [Ready Check]({webhook_host}/ready)\n"
+            f"🔗 [Root API]({webhook_host}/)\n"
+        )
+
     await message.reply(status_text, parse_mode="Markdown")
 
 
