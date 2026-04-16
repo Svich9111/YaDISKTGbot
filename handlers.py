@@ -356,11 +356,19 @@ async def status_command(message: Message):
         total_space = disk_info.get('total_space', 0) / (1024**3)
         used_space = disk_info.get('used_space', 0) / (1024**3)
         free_space = total_space - used_space
+
+        # Получаем настройки чата для ссылки на папку
+        chat_config = await get_chat_config(message.chat.id)
+        root_folder = chat_config[1] if chat_config and chat_config[1] else config.ROOT_FOLDER
+        encoded_folder = urllib.parse.quote(root_folder)
+        folder_url = f"https://disk.yandex.ru/client/disk/{encoded_folder}"
+
         status_text += (
             f"☁️ **Yandex Disk**\n"
             f"Total: {total_space:.2f} GB\n"
             f"Used: {used_space:.2f} GB\n"
             f"Free: {free_space:.2f} GB\n"
+            f"📂 [Открыть папку бота]({folder_url})\n"
         )
     else:
         status_text += "☁️ **Yandex Disk**: ❌ Error connecting\n"
@@ -621,17 +629,15 @@ async def handle_file(message: Message):
     ext = file_name.split('.')[-1].lower() if '.' in file_name else ""
     main_formats = {'jpg', 'jpeg', 'heic', 'mov', 'mp4', 'png', 'avi', 'mkv', 'webm'}
 
-    # Support for Media Groups (Albums)
-    # If message has media_group_id, create a subfolder for the album
-    album_folder = ""
-    if message.media_group_id:
-        album_folder = f"/Альбом_{message.media_group_id}"
-
     # Если файл пришел как документ, но имеет расширение видео/фото, кладем в основную папку
     if ext in main_formats:
-        disk_path = f"{root_folder}/{year}/{month}{album_folder}/{file_name}"
+        disk_path = f"{root_folder}/{year}/{month}/{file_name}"
     else:
-        disk_path = f"{root_folder}/{year}/{month}/Прочее{album_folder}/{file_name}"
+        # Для прочих файлов создаем папку "Прочее" внутри месяца
+        disk_path = f"{root_folder}/{year}/{month}/Прочее/{file_name}"
+
+    # Очищаем путь от двойных слешей, которые могут возникнуть при пустом album_folder
+    disk_path = disk_path.replace("//", "/")
 
     # Добавление в БД и очередь (на этом этапе файл уже успешно получен от Telegram)
     if await add_file(

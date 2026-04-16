@@ -40,13 +40,16 @@ async def init_db():
             )
         """)
 
-        # Миграция: добавляем file_size, если колонки нет
+        # Миграция: добавляем колонки, если их нет
         async with db.execute("PRAGMA table_info(files)") as cursor:
             columns = await cursor.fetchall()
             column_names = [col[1] for col in columns]
             if "file_size" not in column_names:
                 await db.execute("ALTER TABLE files ADD COLUMN file_size INTEGER")
                 logger.info("Migration: added file_size column to files table")
+            if "file_hash" not in column_names:
+                await db.execute("ALTER TABLE files ADD COLUMN file_hash TEXT")
+                logger.info("Migration: added file_hash column to files table")
 
         await db.commit()
         logger.info("Database initialized")
