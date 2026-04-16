@@ -71,9 +71,10 @@ class UploadQueue:
                 # 1. Статус: Скачивание
                 queue_size = self.queue.qsize()
                 file_name = disk_path.split("/")[-1]
+                safe_file_name = file_name.replace("_", "\\_").replace("*", "\\*").replace("`", "\\`")
                 await self.update_progress_message(
                     bot, chat_id, status_msg_id,
-                    f"📥 Скачивание файла **{file_name}**...\n📂 В очереди: {queue_size}"
+                    f"📥 Скачивание файла **{safe_file_name}**...\n📂 В очереди: {queue_size}"
                 )
 
                 # 2. Создание папок
@@ -107,8 +108,9 @@ class UploadQueue:
                             # Текст всегда меняется, иначе Telegram выдаст "message is not modified"
                             try:
                                 file_name = disk_path.split("/")[-1]
+                                safe_file_name = file_name.replace("_", "\\_").replace("*", "\\*").replace("`", "\\`")
                                 await bot.edit_message_text(
-                                    f"☁️ Загрузка **{file_name}** на Яндекс.Диск: {percent}%\n📂 В очереди: {q_size}",
+                                    f"☁️ Загрузка **{safe_file_name}** на Яндекс.Диск: {percent}%\n📂 В очереди: {q_size}",
                                     chat_id,
                                     status_msg_id,
                                     parse_mode="Markdown"
@@ -157,9 +159,10 @@ class UploadQueue:
                 if success:
                     await update_status(unique_id, "success")
                     file_name = disk_path.split("/")[-1]
+                    safe_file_name = file_name.replace("_", "\\_").replace("*", "\\*").replace("`", "\\`")
                     try:
                         await bot.edit_message_text(
-                            f"✅ Файл загружен: **{file_name}**",
+                            f"✅ Файл загружен: **{safe_file_name}**",
                             chat_id, status_msg_id,
                             parse_mode="Markdown",
                         )
@@ -167,7 +170,7 @@ class UploadQueue:
                         # Если не удалось отредактировать, отправляем новое
                         msg = await bot.send_message(
                             chat_id,
-                            f"✅ Файл загружен: **{file_name}**",
+                            f"✅ Файл загружен: **{safe_file_name}**",
                             parse_mode="Markdown",
                         )
                         await add_notification(chat_id, msg.message_id)
@@ -179,9 +182,10 @@ class UploadQueue:
                 logger.exception("Worker error")
                 await update_status(unique_id, "error", reason=str(exc))
                 file_name = disk_path.split("/")[-1]
+                safe_file_name = file_name.replace("_", "\\_").replace("*", "\\*").replace("`", "\\`")
                 await self.update_progress_message(
                     bot, chat_id, status_msg_id,
-                    f"❌ Ошибка при загрузке **{file_name}**: {exc}",
+                    f"❌ Ошибка при загрузке **{safe_file_name}**: {exc}",
                 )
             finally:
                 if unique_id in self.active_uploads:

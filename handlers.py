@@ -666,28 +666,28 @@ async def handle_file(message: Message):
             # Если это группа, уведомление идет админу в ЛС.
             target_chat_id = notification_chat_id
             
-            # Всегда отправляем подтверждение в чат-источник, чтобы пользователь видел реакцию
-            status_msg = await message.reply(
-                f"⏳ Файл **{file_name}** добавлен в очередь.\n📂 Позиция: {queue_size}",
-                parse_mode="Markdown"
-            )
-            await add_notification(message.chat.id, status_msg.message_id)
-
-            # Дополнительно пытаемся отправить в ЛС админу, если это группа
-            if message.chat.id != notification_chat_id:
-                try:
-                    admin_msg = await message.bot.send_message(
-                        notification_chat_id,
-                        f"🔔 Новый файл в очереди из чата **{message.chat.title or 'Group'}**:\n"
-                        f"📄 **{file_name}**",
-                        parse_mode="Markdown"
-                    )
-                    await add_notification(notification_chat_id, admin_msg.message_id)
-                except Exception as e:
-                    logger.warning(f"Could not send DM to admin {notification_chat_id}: {e}")
+            # Пытаемся отправить уведомление ТОЛЬКО в ЛС админу чата
+            target_chat_id = notification_chat_id
             
-            # Для обновлений статуса (прогресс-бар) используем сообщение в чате-источнике
-            target_chat_id = message.chat.id
+            try:
+                # Экранируем имя файла для Markdown или используем HTML
+                safe_file_name = file_name.replace("_", "\\_").replace("*", "\\*").replace("`", "\\`")
+                
+                status_msg = await message.bot.send_message(
+                    target_chat_id,
+                    f"⏳ Файл **{safe_file_name}** добавлен в очередь.\n📂 Позиция: {queue_size}",
+                    parse_mode="Markdown"
+                )
+                # Регистрируем сообщение для последующего удаления
+                await add_notification(target_chat_id, status_msg.message_id)
+            except Exception as e:
+                logger.warning(f"Could not send DM to admin {target_chat_id}: {e}. Falling back to source chat.")
+                # Если не удалось отправить в ЛС (например, бот не стартован у юзера), шлем в чат источника
+                status_msg = await message.reply(
+                    f"⏳ Файл **{file_name}** добавлен в очередь (позиция: {queue_size})..."
+                )
+                await add_notification(message.chat.id, status_msg.message_id)
+                target_chat_id = message.chat.id
 
             # Добавляем задачу в очередь
             await current_queue.add_task(
