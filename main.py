@@ -131,7 +131,49 @@ async def on_startup(bot: Bot, queue: UploadQueue):
         if pending_files:
             logger.info(f"Restoring {len(pending_files)} pending files from database...")
             restored_count = 0
+            
+            # Импортируем функцию обновления статуса
+            from database import update_status
+            import datetime
+            
+            from datetime import datetime, timedelta
+            
             for file_data in pending_files:
+                # telegram_file_id, telegram_file_unique_id, disk_path, chat_id, message_id, file_size, created_at
+                telegram_file_id = file_data[0]
+                unique_id = file_data[1]
+                disk_path = file_data[2]
+                chat_id = file_data[3]
+                message_id = file_data[4]
+                file_size = file_data[5]
+                created_at_str = file_data[6]
+
+                # Проверка возраста файла
+                try:
+                    created_at = datetime.strptime(created_at_str, '%Y-%m-%d %H:%M:%S')
+                    if datetime.now() - created_at > timedelta(hours=12):
+                        logger.warning(f"Skipping old file {unique_id} (created at {created_at_str})")
+                        await update_status(unique_id, "error", reason="Restore timeout (older than 12h)")
+                        continue
+                except Exception as e:
+                    logger.error(f"Error parsing date for {unique_id}: {e}")
+
+                try:
+                    file = await bot.get_file(telegram_file_id)
+                    await queue.add_task(
+                        file.file_path,
+                        disk_path,
+                        unique_id,
+                        bot,
+                        chat_id,
+                        message_id,
+                        None,  # yandex_token (будет выбран дефолтный)
+                        file_size  # размер файла для стриминга
+                    )
+                    restored_count += 1
+                except Exception as e:
+                    logger.error(f"Failed to restore file {unique_id}: {e}")
+            logger.info(f"Successfully restored {restored_count} files to queue")
                 # telegram_file_id, telegram_file_unique_id, disk_path, chat_id, message_id, file_size
                 telegram_file_id = file_data[0]
                 unique_id = file_data[1]

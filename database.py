@@ -119,7 +119,7 @@ async def get_pending_files_with_ids():
     async with aiosqlite.connect(config.DB_NAME) as db:
         async with db.execute(
             "SELECT telegram_file_id, telegram_file_unique_id, disk_path, "
-            "chat_id, message_id, file_size FROM files WHERE status = 'pending' "
+            "chat_id, message_id, file_size, created_at FROM files WHERE status = 'pending' "
             "ORDER BY file_size ASC"
         ) as cursor:
             return await cursor.fetchall()
