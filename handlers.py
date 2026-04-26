@@ -359,19 +359,22 @@ async def status_command(message: Message):
 
         # Получаем настройки чата для ссылки на папку
         chat_config = await get_chat_config(message.chat.id)
-        root_folder = chat_config[1] if chat_config and chat_config[1] else config.ROOT_FOLDER
+        # Индексы в chat_config: 0 - token, 1 - root_folder, 2 - admin_id
+        current_folder = chat_config[1] if chat_config and chat_config[1] else config.ROOT_FOLDER
         
-        # Формируем ссылку на корень диска или конкретную папку
-        # Яндекс.Диск ожидает путь в формате /disk/path/to/folder
-        encoded_folder = urllib.parse.quote(root_folder)
-        folder_url = f"https://disk.yandex.ru/client/disk/{encoded_folder}"
+        # Формируем корректную ссылку для Яндекс.Диска
+        # Если папка в корне, путь должен начинаться с /
+        disk_path_link = current_folder if current_folder.startswith("/") else f"/{current_folder}"
+        encoded_folder = urllib.parse.quote(disk_path_link)
+        folder_url = f"https://disk.yandex.ru/client/disk{encoded_folder}"
 
         status_text += (
             f"☁️ **Yandex Disk**\n"
             f"Total: {total_space:.2f} GB\n"
             f"Used: {used_space:.2f} GB\n"
             f"Free: {free_space:.2f} GB\n"
-            f"📂 [Открыть папку бота]({folder_url})\n"
+            f"📂 Текущая папка: `{current_folder}`\n"
+            f"🔗 [Открыть в Яндекс.Диске]({folder_url})\n"
         )
     else:
         status_text += "☁️ **Yandex Disk**: ❌ Error connecting\n"
